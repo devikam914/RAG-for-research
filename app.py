@@ -2,7 +2,12 @@ import streamlit as st
 from src.client import get_gemini_client
 from src.document_processor import file_hash
 from src.generator import generate_grounded_answer
-from src.vector_store import build_vector_index, search_similar_chunks
+from src.vector_store import (
+    build_vector_index,
+    get_or_create_collection,
+    reset_vector_collection,
+    search_similar_chunks,
+)
 
 st.set_page_config(
     page_title="Research RAG",
@@ -39,12 +44,11 @@ def cached_client():
         st.stop()
 
 
+collection = get_or_create_collection()
+chunk_count = collection.count()
+
 if "library" not in st.session_state:
     st.session_state.library = {}
-if "chunks" not in st.session_state:
-    st.session_state.chunks = None
-if "embeddings" not in st.session_state:
-    st.session_state.embeddings = None
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -69,24 +73,28 @@ with st.sidebar:
                     added += 1
             st.success(f"Added {added} new paper(s).")
 
-    st.caption(f"{len(st.session_state.library)} paper(s) in library")
+    st.caption(f"{len(st.session_state.library)} paper(s) in library session")
 
     if st.button("Build / rebuild index", type="primary", use_container_width=True):
         if not st.session_state.library:
             st.warning("Add papers before building the index.")
         else:
-            with st.spinner("Extracting text and creating embeddings..."):
+            with st.spinner("Extracting text and indexing into ChromaDB..."):
                 try:
                     client = cached_client()
-                    chunks, embeddings = build_vector_index(st.session_state.library, client)
-                    st.session_state.chunks = chunks
-                    st.session_state.embeddings = embeddings
-                    st.success(f"Indexed {len(chunks)} chunks.")
+                    indexed_count = build_vector_index(st.session_state.library, client)
+                    st.success(f"Indexed {indexed_count} chunks into ChromaDB.")
+                    st.rerun()
                 except Exception as exc:
                     st.error(f"Indexing failed: {exc}")
 
-    if st.session_state.chunks:
-        st.info(f"Ready: {len(st.session_state.chunks)} searchable chunks")
+    if chunk_count > 0:
+        st.info(f"Ready: {chunk_count} searchable chunks in ChromaDB")
+        if st.button("Reset vector index", use_container_width=True):
+            reset_vector_collection()
+            st.session_state.library = {}
+            st.session_state.messages = []
+            st.rerun()
 
     use_web = st.toggle(
         "Allow Google Search when needed",
@@ -98,7 +106,7 @@ with st.sidebar:
         st.session_state.messages = []
         st.rerun()
 
-if not st.session_state.chunks:
+if chunk_count == 0:
     st.info("Add one or more PDFs in the sidebar, then build the index to start chatting.")
     st.stop()
 
@@ -123,16 +131,11 @@ if query:
         with st.spinner("Retrieving relevant passages and generating an answer..."):
             try:
                 client = cached_client()
-                
-                # ADD THIS LINE: Prove to the type checker it's not None
-                assert st.session_state.embeddings is not None, "Embeddings not initialized"
-                assert st.session_state.chunks is not None, "Chunks not initialized"
 
                 sources = search_similar_chunks(
                     query=query,
-                    chunks=st.session_state.chunks,
-                    embeddings=st.session_state.embeddings,
                     client=client,
+                    collection=collection,
                 )
 
                 answer = generate_grounded_answer(

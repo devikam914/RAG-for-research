@@ -39,7 +39,9 @@ Thumbs.db
 # Streamlit
 .streamlit/
 
-# Local data and generated files
+# Local data and files
 *.log
 coverage/
 htmlcov/
+chroma_db/
+overview.md

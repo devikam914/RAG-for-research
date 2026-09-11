@@ -2,7 +2,7 @@ import hashlib
 from io import BytesIO
 from typing import Any
 from pypdf import PdfReader
-from src.config import CHUNK_OVERLAP, CHUNK_WORDS
+from config import CHUNK_OVERLAP, CHUNK_WORDS
 
 
 def file_hash(data: bytes) -> str:
